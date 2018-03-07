@@ -43,15 +43,14 @@
 #define RELAY           12                                   // (Don't Change for Original Sonoff, Sonoff SV, Sonoff Touch, Sonoff S20 Socket)
 #define LED             13                                   // (Don't Change for Original Sonoff, Sonoff SV, Sonoff Touch, Sonoff S20 Socket)
 
-#define MQTT_CLIENT     "Sonoff_Living_Room_v1.01pOTA"       // mqtt client_id (Must be unique for each Sonoff)
-#define MQTT_SERVER     "192.168.0.100"                      // mqtt server
+#define MQTT_SERVER     "192.168.0.101"                      // mqtt server
 #define MQTT_PORT       1883                                 // mqtt port
-#define MQTT_TOPIC      "home/sonoff/living_room/1"          // mqtt topic (Must be unique for each Sonoff)
-#define MQTT_USER       "user"                               // mqtt user
-#define MQTT_PASS       "pass"                               // mqtt password
+#define MQTT_USER       ""                               // mqtt user
+#define MQTT_PASS       ""                               // mqtt password
 
-#define WIFI_SSID       "homewifi"                           // wifi ssid
-#define WIFI_PASS       "homepass"                           // wifi password
+#define WIFI_SSID       "Sarah&Charles"                           // wifi ssid
+#define WIFI_PASS       "oiseauwifi"                           // wifi password
+#define DEBUG_ESP_OTA 1
 
 #define VERSION    "\n\n----------------  Sonoff Powerpoint v1.01pOTA  -----------------"
 
@@ -61,8 +60,10 @@ bool sendStatus = false;                                     // (Do not Change)
 bool requestRestart = false;                                 // (Do not Change)
 
 int kUpdFreq = 1;                                            // Update frequency in Mintes to check for mqtt connection
-int kRetries = 10;                                           // WiFi retry count. Increase if not connecting to router.
+int kRetries = 20;                                           // WiFi retry count. Increase if not connecting to router.
 int lastRelayState;                                          // (Do not Change)
+String MQTT_TOPIC;
+String MQTT_CLIENT;
 
 unsigned long TTasks;                                        // (Do not Change)
 unsigned long count = 0;                                     // (Do not Change)
@@ -93,6 +94,8 @@ void callback(const MQTT::Publish& pub) {
 }
 
 void setup() {
+  MQTT_TOPIC = "home/sonoff/" + String(ESP.getChipId(), HEX) + "/";
+  MQTT_CLIENT = "Sonoff_" + String(ESP.getChipId(), HEX);
   pinMode(LED, OUTPUT);
   pinMode(RELAY, OUTPUT);
   pinMode(BUTTON, INPUT);
@@ -107,59 +110,39 @@ void setup() {
   }
   btn_timer.attach(0.05, button);
   mqttClient.set_callback(callback);
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  ArduinoOTA.onStart([]() {
-    OTAupdate = true;
-    blinkLED(LED, 400, 2);
-    digitalWrite(LED, HIGH);
-    Serial.println("OTA Update Initiated . . .");
-  });
-  ArduinoOTA.onEnd([]() {
-    Serial.println("\nOTA Update Ended . . .s");
-    ESP.restart();
-  });
-  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    digitalWrite(LED, LOW);
-    delay(5);
-    digitalWrite(LED, HIGH);
-    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
-  });
-  ArduinoOTA.onError([](ota_error_t error) {
-    blinkLED(LED, 40, 2);
-    OTAupdate = false;
-    Serial.printf("OTA Error [%u] ", error);
-    if (error == OTA_AUTH_ERROR) Serial.println(". . . . . . . . . . . . . . . Auth Failed");
-    else if (error == OTA_BEGIN_ERROR) Serial.println(". . . . . . . . . . . . . . . Begin Failed");
-    else if (error == OTA_CONNECT_ERROR) Serial.println(". . . . . . . . . . . . . . . Connect Failed");
-    else if (error == OTA_RECEIVE_ERROR) Serial.println(". . . . . . . . . . . . . . . Receive Failed");
-    else if (error == OTA_END_ERROR) Serial.println(". . . . . . . . . . . . . . . End Failed");
-  });
-  ArduinoOTA.begin();
   Serial.println(VERSION);
   Serial.print("\nUnit ID: ");
   Serial.print("esp8266-");
   Serial.print(ESP.getChipId(), HEX);
-  Serial.print("\nConnecting to "); Serial.print(WIFI_SSID); Serial.print(" Wifi"); 
+  Serial.print("\nMQTT topic: ");
+  Serial.print(MQTT_TOPIC);
+  Serial.print("\nConnecting to "); Serial.print(WIFI_SSID); Serial.print(" Wifi");
+  setupWIFI();
+  setupOTA();
+}
+
+void setupWIFI() {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
   while ((WiFi.status() != WL_CONNECTED) && kRetries --) {
-    delay(500);
+    blinkLED(LED, 950, 50, 1);
     Serial.print(" .");
   }
   if (WiFi.status() == WL_CONNECTED) {  
     Serial.println(" DONE");
     Serial.print("IP Address is: "); Serial.println(WiFi.localIP());
-    Serial.print("Connecting to ");Serial.print(MQTT_SERVER);Serial.print(" Broker . .");
+    Serial.print("Connecting to ");Serial.print(MQTT_SERVER);Serial.print(" Broker ");
     delay(500);
     while (!mqttClient.connect(MQTT::Connect(MQTT_CLIENT).set_keepalive(90).set_auth(MQTT_USER, MQTT_PASS)) && kRetries --) {
       Serial.print(" .");
-      delay(1000);
+      blinkLED(LED, 50, 950, 1);
     }
     if(mqttClient.connected()) {
       Serial.println(" DONE");
       Serial.println("\n----------------------------  Logs  ----------------------------");
       Serial.println();
       mqttClient.subscribe(MQTT_TOPIC);
-      blinkLED(LED, 40, 8);
+      blinkLED(LED, 40, 40, 8);
       if(digitalRead(RELAY) == HIGH)  {
         digitalWrite(LED, LOW);
       } else {
@@ -179,6 +162,38 @@ void setup() {
   }
 }
 
+void setupOTA() {
+  ArduinoOTA.setPort(8266);
+  ArduinoOTA.onStart([]() {
+    OTAupdate = true;
+    blinkLED(LED, 400, 400, 2);
+    digitalWrite(LED, HIGH);
+    Serial.println("OTA Update Initiated . . .");
+  });
+  ArduinoOTA.onEnd([]() {
+    Serial.println("\nOTA Update Ended . . .s");
+    ESP.restart();
+  });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    digitalWrite(LED, LOW);
+    delay(5);
+    digitalWrite(LED, HIGH);
+    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+    blinkLED(LED, 40, 40, 2);
+    OTAupdate = false;
+    Serial.printf("OTA Error [%u] ", error);
+    if (error == OTA_AUTH_ERROR) Serial.println(". . . . . . . . . . . . . . . Auth Failed");
+    else if (error == OTA_BEGIN_ERROR) Serial.println(". . . . . . . . . . . . . . . Begin Failed");
+    else if (error == OTA_CONNECT_ERROR) Serial.println(". . . . . . . . . . . . . . . Connect Failed");
+    else if (error == OTA_RECEIVE_ERROR) Serial.println(". . . . . . . . . . . . . . . Receive Failed");
+    else if (error == OTA_END_ERROR) Serial.println(". . . . . . . . . . . . . . . End Failed");
+  });
+  ArduinoOTA.begin();
+  Serial.println("OTA ready");
+}
+
 void loop() {
   ArduinoOTA.handle();
   if (OTAupdate == false) { 
@@ -188,12 +203,12 @@ void loop() {
   }
 }
 
-void blinkLED(int pin, int duration, int n) {             
+void blinkLED(int pin, int durationOn, int durationOff, int n) {
   for(int i=0; i<n; i++)  {  
     digitalWrite(pin, HIGH);        
-    delay(duration);
+    delay(durationOn);
     digitalWrite(pin, LOW);
-    delay(duration);
+    delay(durationOff);
   }
 }
 
@@ -237,13 +252,13 @@ void checkStatus() {
       if (rememberRelayState) {
         EEPROM.write(0, 1);
       }      
-      mqttClient.publish(MQTT::Publish(MQTT_TOPIC"/stat", "on").set_retain().set_qos(1));
+      mqttClient.publish(MQTT::Publish(MQTT_TOPIC + "stat/", "on").set_retain().set_qos(1));
       Serial.println("Relay . . . . . . . . . . . . . . . . . . ON");
     } else {
       if (rememberRelayState) {
         EEPROM.write(0, 0);
       }       
-      mqttClient.publish(MQTT::Publish(MQTT_TOPIC"/stat", "off").set_retain().set_qos(1));
+      mqttClient.publish(MQTT::Publish(MQTT_TOPIC + "stat/", "off").set_retain().set_qos(1));
       Serial.println("Relay . . . . . . . . . . . . . . . . . . OFF");
     }
     if (rememberRelayState) {
@@ -252,7 +267,7 @@ void checkStatus() {
     sendStatus = false;
   }
   if (requestRestart) {
-    blinkLED(LED, 400, 4);
+    blinkLED(LED, 400, 400, 4);
     ESP.restart();
   }
 }
